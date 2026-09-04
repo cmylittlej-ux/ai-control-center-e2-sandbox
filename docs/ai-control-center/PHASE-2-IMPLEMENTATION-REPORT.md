@@ -385,8 +385,8 @@ Phase 2 implementation/evidence baseline commit SHA:
 
 This blocker-resolution pass adds only the App Server protocol negotiation and
 non-success turn fail-closed correction in `control_kernel/phase2.py`, plus
-this evidence/report update. The final commit SHA is recorded by Git after
-the documentation consistency check.
+this evidence/report update. The scoped correction commit SHA is
+`84c273b0007f541cdb66f9bbb75a4ed664001f18`.
 
 ## HARD STOP
 
