@@ -4,15 +4,18 @@
 
 ## Final result
 
-`PHASE_1_BLOCKED`
+`PHASE_1_PASS`
 
-Phase 1 implementation is blocked at the PostgreSQL integration gate. The
-Codex `0.153.2` executable/schema pair is now independently verified and
-pinned. The minimal kernel source, PostgreSQL migration, deterministic policy
-layer, one Worker-session binding, machine verification handoff, and contract
-tests are present. A Phase 1 PASS cannot be claimed because this host still does
-not provide a reachable PostgreSQL instance. The implementation remains
+The scoped Phase 1 minimal Control Kernel has passed its live PostgreSQL
+integration gate. The Codex `0.153.2` executable/schema pair is independently
+verified and pinned; the exact nine-state model, leases/fencing, deterministic
+policy, idempotency, append-only evidence, Worker privilege boundary, and
+machine verification handoff are covered by contract tests and real PostgreSQL
+tests against the disposable `aicc_phase1` database. The implementation remains
 fail-closed for any runtime or schema outside the recorded pin.
+
+This PASS covers the explicitly authorized minimal Control Kernel only. It does
+not authorize Phase 2 or any deferred product/operations scope.
 
 No Dashboard, two-Worker scheduler, full Director/Reviewer automation,
 multi-project runtime, deployment, production API, or real business project was
@@ -220,7 +223,7 @@ python3 -m unittest discover -s tests -v
 Result:
 
 ```text
-Ran 15 tests in 0.172s
+Ran 15 tests in 0.213s
 OK
 ```
 
@@ -249,30 +252,107 @@ Additional checks:
 - no Ruff or mypy executable is installed, so those optional checks were not
   claimed.
 
-These are source/contract tests. They are not evidence of a live PostgreSQL
-integration run.
+These are source/contract tests. The separate live PostgreSQL evidence is
+recorded below.
 
-## 5. Mandatory integration evidence not available
+## 5. Live PostgreSQL integration evidence
 
 ### PostgreSQL
 
-The host has no `psql`, `postgres`, or `createdb` executable. Docker CLI is
-installed, but the daemon is not reachable:
+The disposable local integration environment was verified with:
 
 ```text
-permission denied while trying to connect to the Docker API at
-unix:///Users/mengyaocong/.docker/run/docker.sock
+/opt/homebrew/opt/postgresql@17/bin/pg_isready -h /tmp -p 5432
+/tmp:5432 - accepting connections
+
+/opt/homebrew/opt/postgresql@17/bin/psql -h /tmp -p 5432 -U mengyaocong -d aicc_phase1 -At -v ON_ERROR_STOP=1 -c "SELECT current_database(), current_user, version();"
+aicc_phase1|mengyaocong|PostgreSQL 17.11 (Homebrew) on aarch64-apple-darwin24.6.0, compiled by Apple clang version 17.0.0 (clang-1700.6.4.2), 64-bit
 ```
 
-The following therefore remain unverified on this host:
+Migration was applied to the clean disposable database with:
 
-- applying the migration to PostgreSQL;
-- real advisory-lock contention across two database sessions;
-- real transaction rollback and row-lock behavior;
-- real lease expiry/heartbeat races;
-- PostgreSQL ACL and trigger enforcement under the actual application and
-  Worker roles;
-- live append-only chain reconstruction and restore validation.
+```text
+/opt/homebrew/opt/postgresql@17/bin/psql -h /tmp -p 5432 -U mengyaocong -d aicc_phase1 -v ON_ERROR_STOP=1 -f migrations/001_control_kernel.sql
+BEGIN
+CREATE SCHEMA
+CREATE TABLE ...
+CREATE INDEX
+CREATE FUNCTION
+CREATE TRIGGER
+REVOKE
+DO
+COMMIT
+```
+
+The command exited 0 and committed successfully. The migration's `tasks.state`
+constraint contains exactly the frozen nine states and rejects `TESTING`.
+
+Only disposable Phase 1 roles were created:
+
+```sql
+CREATE ROLE control_kernel_app NOLOGIN;
+CREATE ROLE control_kernel_worker NOLOGIN;
+GRANT USAGE ON SCHEMA control_kernel TO control_kernel_app, control_kernel_worker;
+GRANT SELECT, INSERT, UPDATE ON control_kernel.tasks,
+  control_kernel.executions, control_kernel.idempotency_keys TO control_kernel_app;
+GRANT SELECT, INSERT ON control_kernel.audit_events,
+  control_kernel.evidence_records TO control_kernel_app;
+GRANT SELECT, UPDATE ON control_kernel.audit_chain_heads TO control_kernel_app;
+REVOKE ALL ON control_kernel.tasks, control_kernel.executions,
+  control_kernel.idempotency_keys, control_kernel.audit_chain_heads,
+  control_kernel.audit_events, control_kernel.evidence_records
+  FROM control_kernel_worker;
+```
+
+Final read-only role checks returned:
+
+```text
+control_kernel_app|f
+control_kernel_worker|f
+app INSERT audit_events = true
+app UPDATE audit_events = false
+worker UPDATE tasks = false
+```
+
+### Integration test evidence
+
+Live tests used psycopg from the temporary verification dependency directory
+`/private/tmp/aicc-phase1-psycopg`; no project or system PostgreSQL dependency
+was installed. Exact command:
+
+```text
+env PYTHONPATH=/private/tmp/aicc-phase1-psycopg python3 -m unittest discover -s tests -p 'test_postgres_integration.py' -v
+```
+
+Result:
+
+```text
+Ran 8 tests in 2.490s
+OK
+```
+
+The eight real database tests provide the following evidence:
+
+| Acceptance behavior | Result | Machine evidence |
+|---|---|---|
+| A. Clean migration and exact nine-state schema | PASS | `test_migration_constraints_match_exact_frozen_nine_states`; migration `COMMIT` on `aicc_phase1` |
+| B. Single orchestrator ownership | PASS | `test_two_independent_sessions_allow_only_one_advisory_lock_owner`; two independent sessions observed `true`, `false`, then `true` after release |
+| C. Lease/fencing and DB time | PASS | `test_real_lease_fencing_db_time_and_expiry_increment`; stale epoch update affected 0 rows, DB expiry was after DB clock, heartbeat rejected after expiry, recovery moved to `READY`, attempt `1 -> 2`, epoch `1 -> 2` |
+| D. Transactions/concurrency | PASS | `test_transaction_rollback_row_lock_and_conflicting_transition`; rollback left 0 rows, real `FOR UPDATE` contention raised `LockNotAvailable`, one of two conflicting transitions was fenced |
+| E. Idempotency | PASS | `test_idempotent_replay_and_conflicting_payload_are_rejected`; same payload replayed, conflicting payload raised `IdempotencyConflict` |
+| F. Worker DB isolation | PASS | `test_worker_role_has_no_forbidden_table_privileges_or_mutation_path`; Worker UPDATE attempt raised `InsufficientPrivilege` and forbidden privileges were false |
+| G. Append-only audit/evidence | PASS | `test_app_append_only_permissions_chain_reconstruction_and_correction_append`; append succeeded, UPDATE/DELETE denied, chain links reconstructed, correction used a new append record |
+| H. Reconnect reconstruction | PASS | `test_evidence_and_chain_reconstruct_after_reconnect`; evidence and its `EVIDENCE_APPENDED` audit record were read after reconnect |
+
+The combined exact command was also run:
+
+```text
+env PYTHONPATH=/private/tmp/aicc-phase1-psycopg python3 -m unittest discover -s tests -v
+```
+
+Combined result: `Ran 23 tests in 2.634s` / `OK` (`15` contract tests plus
+`8` live PostgreSQL integration tests). No simulated test was counted as live
+PostgreSQL evidence.
 
 The code contains no SQLite substitute for these checks.
 
@@ -280,16 +360,16 @@ The code contains no SQLite substitute for these checks.
 
 | Frozen requirement | Phase 1 result |
 |---|---|
-| PostgreSQL authoritative state | Implemented in adapter and migration; live DB verification blocked |
-| Single orchestrator ownership | Advisory-lock implementation and contract test present; live contention blocked |
+| PostgreSQL authoritative state | Implemented in adapter and migration; live migration and schema checks PASS on `aicc_phase1` |
+| Single orchestrator ownership | Advisory-lock implementation; two-session live contention PASS |
 | Exact nine-state model | Corrected to `BACKLOG`, `READY`, `RUNNING`, `VERIFYING`, `REVIEW`, `AWAITING_HUMAN`, `INTEGRATING`, `CLOSED`, `BLOCKED`; contract-tested |
-| IDs, leases, heartbeat, fencing, expiry | Implemented in PostgreSQL operations and contract-tested; live timing blocked |
-| DB authoritative time | `clock_timestamp()` used in schema and operations |
-| Idempotent transitions | Request hash, replay, conflict path implemented and tested |
-| Append-only audit/evidence | Hash-chain schema, triggers, ACL contract, and tests present; live ACL run blocked |
+| IDs, leases, heartbeat, fencing, expiry | Implemented in PostgreSQL operations; live stale-epoch, DB-time, expiry, and attempt increment checks PASS |
+| DB authoritative time | `clock_timestamp()` used in schema and operations; live expiry comparison PASS |
+| Idempotent transitions | Request hash, replay, conflict path; live duplicate/conflict checks PASS |
+| Append-only audit/evidence | Hash-chain schema, triggers, ACLs, correction append, and reconnect reconstruction; live checks PASS |
 | Deterministic policy | Pure code; Worker state writes and protected paths denied and tested |
-| Human Bootstrap/Worker separation | Worker session has no authoritative DB path; actual role deployment blocked with DB setup |
-| One App Server Worker path | Binding and fail-closed runtime gate implemented; exact executable and Schema pin verified; live integrated start remains pending PostgreSQL |
+| Human Bootstrap/Worker separation | Worker session has no authoritative DB path; actual disposable Worker role mutation and privilege checks PASS |
+| One App Server Worker path | Binding and fail-closed runtime gate implemented; exact executable and Schema pin verified; Phase 0 real App Server Turn evidence retained |
 | Machine verification handoff | Implemented and tested; authoritative GitHub run not started in this phase |
 | No formal Dashboard/product scope | Satisfied |
 
@@ -318,7 +398,15 @@ finalized. Files added after the frozen baseline are:
 - `runtime/pinned/SCHEMA-SHA256.txt`
 - `runtime/schema/codex_app_server_protocol.v2.schemas.json`
 - `tests/test_phase1_contracts.py`
+- `tests/test_postgres_integration.py`
 - `docs/ai-control-center/PHASE-1-IMPLEMENTATION-REPORT.md`
+
+The PostgreSQL live-gate correction also changed:
+
+- `control_kernel/postgres.py` — initialize the PostgreSQL adapter session
+  search path to the authoritative `control_kernel` schema;
+- `tests/test_postgres_integration.py` — real eight-test disposable database
+  suite and corrected nested audit-payload reconstruction assertion.
 
 The state-model correction also changed these frozen local provenance documents:
 
@@ -328,23 +416,23 @@ The state-model correction also changed these frozen local provenance documents:
 - `docs/ai-control-center/13-IMPLEMENTATION-ACCEPTANCE.md`
 
 Implementation commit SHA: `b65fb46` (`b65fb46c06fbf65a9a5a292849969ea47fe2fdb9`).
-The report was finalized in the immediately following documentation-only
-commit; the implementation source is unchanged by that finalization.
+The live PostgreSQL integration and adapter correction are recorded in the
+final commit listed at the end of this report.
 
 State-model correction commit SHA: `8409e9106c48c8a84d98ae2f1f56fdb8b81b15a3`.
 The report was finalized in the immediately following documentation-only
 commit.
 
 Runtime pin evidence update commit SHA: `a9e89af` (`a9e89af3a15490f5251be07a3d7df0bf952cd1c2`).
-The report will be finalized in the immediately following documentation-only
-commit.
+
+Final Phase 1 evidence commit SHA: `PENDING_FINAL_COMMIT_SHA`.
 
 ## 8. Known limitations and Phase 2 deferrals
 
-The following are intentionally deferred until the blocked gate is resolved and
-separately authorized where required:
+No remaining blocker exists for the explicitly scoped Phase 1 minimal Control
+Kernel acceptance. The following are intentionally deferred and require
+separate authorization where applicable:
 
-- live PostgreSQL integration/concurrency/ACL/restore verification;
 - full Director and Reviewer automation;
 - two-Worker parallel orchestration and conflict/base-drift pilot;
 - Dashboard UI;
@@ -353,7 +441,8 @@ separately authorized where required:
 - real business project execution;
 - dynamic model routing and AI ETA;
 - production backup/restore operations, Kill Switch operations, and broader
-  operational automation beyond this kernel proof.
+  operational automation beyond this kernel proof. The required disposable
+  transaction/reconnect evidence reconstruction gate passed in this phase.
 
 ## HARD STOP
 

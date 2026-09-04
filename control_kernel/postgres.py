@@ -15,12 +15,22 @@ class PostgresConnection:
 
     def connect(self) -> Any:
         if self._connect_factory is not None:
-            return self._connect_factory(self.dsn)
+            connection = self._connect_factory(self.dsn)
+        else:
+            try:
+                import psycopg
+            except ImportError as exc:
+                raise DatabaseUnavailable("psycopg is required; SQLite fallback is forbidden") from exc
+            connection = psycopg.connect(self.dsn)
         try:
-            import psycopg
-        except ImportError as exc:
-            raise DatabaseUnavailable("psycopg is required; SQLite fallback is forbidden") from exc
-        return psycopg.connect(self.dsn)
+            cursor = connection.cursor()
+            cursor.execute("SET search_path TO control_kernel, public")
+            cursor.close()
+            connection.commit()
+        except Exception:
+            connection.close()
+            raise
+        return connection
 
     @contextmanager
     def transaction(self) -> Iterator[tuple[Any, Any]]:
