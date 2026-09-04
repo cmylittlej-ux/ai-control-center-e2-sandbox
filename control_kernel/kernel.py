@@ -197,6 +197,52 @@ class PostgresControlPlane:
             self._append_audit(cursor, "LEASE_EXPIRED", lease.task_id, lease.attempt_id, lease.lease_epoch, {})
             return True
 
+    def fence_lease(self, lease: Lease, *, target: TaskState, reason_code: ReasonCode) -> None:
+        """Fence an active execution and move it to a safe terminal/recovery state."""
+        self.policy.authorize_state_write("control_plane")
+        with self._transaction() as (_, cursor):
+            cursor.execute(
+                """
+                SELECT state, current_attempt_id, lease_epoch
+                  FROM tasks WHERE task_id = %s FOR UPDATE
+                """,
+                (lease.task_id,),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                raise KeyError(lease.task_id)
+            if (row[1], row[2]) != (lease.attempt_id, lease.lease_epoch):
+                raise StaleLease("cannot fence a stale execution")
+            validate_transition(row[0], target)
+            cursor.execute(
+                """
+                UPDATE executions
+                   SET status = 'RELEASED', ended_at = clock_timestamp()
+                 WHERE task_id = %s AND attempt_id = %s AND lease_epoch = %s AND status = 'ACTIVE'
+                """,
+                (lease.task_id, lease.attempt_id, lease.lease_epoch),
+            )
+            cursor.execute(
+                """
+                UPDATE tasks
+                   SET state = %s, reason_code = %s,
+                       state_version = state_version + 1, updated_at = clock_timestamp()
+                 WHERE task_id = %s AND state = %s
+                   AND current_attempt_id = %s AND lease_epoch = %s
+                """,
+                (target.value, reason_code.value, lease.task_id, row[0], lease.attempt_id, lease.lease_epoch),
+            )
+            if cursor.rowcount != 1:
+                raise StaleLease("lease fencing lost its state predicate")
+            self._append_audit(
+                cursor,
+                "LEASE_FENCED",
+                lease.task_id,
+                lease.attempt_id,
+                lease.lease_epoch,
+                {"target": target.value, "reason_code": reason_code.value},
+            )
+
     def transition(
         self,
         *,
