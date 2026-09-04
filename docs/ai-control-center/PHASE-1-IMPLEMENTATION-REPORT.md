@@ -426,7 +426,7 @@ commit.
 Runtime pin evidence update commit SHA: `a9e89af` (`a9e89af3a15490f5251be07a3d7df0bf952cd1c2`).
 
 Phase 1 PostgreSQL integration evidence commit SHA: `ddffc18eeb114d33436dac4c55a484451835aab4`.
-The report-only finalization commit follows this evidence commit.
+Final Phase 1 report commit SHA: `0826fe4158ad37da087c9a660e3a0da06b581b1b`.
 
 ## 8. Known limitations and Phase 2 deferrals
 
