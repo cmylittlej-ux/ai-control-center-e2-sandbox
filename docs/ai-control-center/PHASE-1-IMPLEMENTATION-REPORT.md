@@ -259,7 +259,9 @@ finalized. Files added after the frozen baseline are:
 - `tests/test_phase1_contracts.py`
 - `docs/ai-control-center/PHASE-1-IMPLEMENTATION-REPORT.md`
 
-Implementation commit SHA: `PENDING_FINAL_COMMIT_SHA`
+Implementation commit SHA: `b65fb46` (`b65fb46c06fbf65a9a5a292849969ea47fe2fdb9`).
+The report was finalized in the immediately following documentation-only
+commit; the implementation source is unchanged by that finalization.
 
 ## 8. Known limitations and Phase 2 deferrals
 
