@@ -1,7 +1,17 @@
 {
   "codex_cli_version": "0.153.2",
+  "executable_path": "/Users/Shared/aicc-phase1-pin/codex-0.153.2",
+  "executable_sha256": "195ace4100a634a9df39147f493e730e666b5bd87795f3c9f3251d8542400424",
   "schema_path": "runtime/schema/codex_app_server_protocol.v2.schemas.json",
-  "schema_sha256": null,
+  "schema_sha256": "e5f798fd1343c539f01fedea0e8a84a43c080fcca4615c80eb04a5edab4f7d0a",
+  "schema_generator_version": "codex-cli 0.153.2",
+  "schema_generation_command": [
+    "codex",
+    "app-server",
+    "generate-json-schema",
+    "--experimental",
+    "--out"
+  ],
   "fail_closed": true,
-  "status": "BLOCKED_UNTIL_EXACT_0_153_2_SCHEMA_IS_GENERATED"
+  "status": "PINNED_AND_VERIFIED"
 }

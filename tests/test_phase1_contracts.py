@@ -276,13 +276,19 @@ class Phase1ContractTests(unittest.TestCase):
 
     def test_runtime_and_schema_fail_closed_when_pin_is_incomplete_or_unsupported(self) -> None:
         pin_path = ROOT / "runtime/codex-app-server-pin.json"
+        pin = RuntimePin.from_json(pin_path)
+        pin.validate("0.153.2")
         with self.assertRaises(UnsupportedRuntime):
-            RuntimePin.from_json(pin_path)
+            pin.validate("0.153.1")
+        with self.assertRaises(UnsupportedRuntime):
+            pin.validate("0.153.2", executable_path=ROOT / "runtime/codex-app-server-pin.json")
         schema = b'{"jsonrpc":"2.0"}'
         digest = hashlib.sha256(schema).hexdigest()
         self.assertEqual(validate_runtime("0.153.2", schema, expected_schema_sha256=digest), digest)
         with self.assertRaises(UnsupportedRuntime):
             validate_runtime("0.153.0-alpha.5", schema, expected_schema_sha256=digest)
+        with self.assertRaises(UnsupportedRuntime):
+            validate_runtime("0.153.2", b"different-schema", expected_schema_sha256=digest)
         with self.assertRaises(UnsupportedRuntime):
             validate_runtime("0.153.2", schema)
 
@@ -291,7 +297,15 @@ class Phase1ContractTests(unittest.TestCase):
             schema_path = Path(directory) / "schema.json"
             schema = b'{"version":"0.153.2"}'
             schema_path.write_bytes(schema)
-            pin = RuntimePin("0.153.2", schema_path, hashlib.sha256(schema).hexdigest())
+            executable_path = Path(directory) / "codex"
+            executable_path.write_bytes(b"disposable-codex-binary")
+            pin = RuntimePin(
+                "0.153.2",
+                executable_path,
+                hashlib.sha256(b"disposable-codex-binary").hexdigest(),
+                schema_path,
+                hashlib.sha256(schema).hexdigest(),
+            )
             workspace_parent = Path(directory) / "workspace"
             workspace_parent.mkdir()
             worktree = workspace_parent / "worktree"
