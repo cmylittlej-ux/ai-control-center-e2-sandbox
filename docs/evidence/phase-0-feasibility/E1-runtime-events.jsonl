@@ -1,0 +1,5 @@
+{"event":"probe_observation","source":"codex app-server","status":"startup_failed","reason_code":"STATE_RUNTIME_INIT_FAILED","details":"Historical pre-bootstrap probe: App Server could not initialize local SQLite state runtime before protocol response; credential values redacted","redacted":true}
+{"event":"human_bootstrap_verified","source":"codex app-server","status":"operational","codex_cli":"0.153.2","worker_identity":"aicc-worker","redacted":true}
+{"event":"turn_completed","source":"codex app-server","status":"success","fixture_change":"expected_repository_file_only","fixture_test":"pass","redacted":true}
+{"event":"thread/tokenUsage/updated","source":"codex app-server","status":"observed","fields":["inputTokens","cachedInputTokens","outputTokens","reasoningOutputTokens","totalTokens","modelContextWindow"],"modelContextWindow":258400,"redacted":true}
+{"event":"AccountRateLimitsUpdated","source":"codex app-server","status":"observed","plan_type":"Plus","windows":["primary","secondary"],"redacted":true}
