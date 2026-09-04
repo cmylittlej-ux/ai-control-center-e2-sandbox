@@ -1,0 +1,4 @@
+Phase 2 authoritative CI probe
+
+This file is disposable verification metadata only. It is not product code,
+and it exists to exercise the protected-main pull-request gate.
