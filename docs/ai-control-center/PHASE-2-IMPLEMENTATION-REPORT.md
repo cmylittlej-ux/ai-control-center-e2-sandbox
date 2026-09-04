@@ -282,7 +282,7 @@ product scope.
 
 ## 10. Git commit
 
-Phase 2 implementation/evidence commit SHA: `PENDING_PHASE2_COMMIT_SHA`.
+Phase 2 implementation/evidence commit SHA: `6cb0c66b669526e1a32d141346c7a1bccef235e4`.
 
 ## HARD STOP
 
