@@ -204,7 +204,17 @@ class AppServerWorkerClient:
         started = time.time()
         usage_events: list[Mapping[str, Any]] = []
         try:
-            self._send(process, {"id": 1, "method": "initialize", "params": {"clientInfo": {"name": "aicc-phase2-worker", "version": "0.1.0"}}})
+            self._send(
+                process,
+                {
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "clientInfo": {"name": "aicc-phase2-worker", "version": "0.1.0"},
+                        "capabilities": {"experimentalApi": True},
+                    },
+                },
+            )
             self._send(process, {"method": "initialized", "params": {}})
             initialize = self._read_response(process, request_id=1, deadline=started + timeout_seconds)
             if "error" in initialize:
@@ -245,7 +255,12 @@ class AppServerWorkerClient:
                 if event.get("id") == 3 and "result" in event:
                     turn_id = event.get("result", {}).get("turn", {}).get("id")
                 if event.get("method") == "turn/completed":
-                    turn_id = turn_id or event.get("params", {}).get("turn", {}).get("id")
+                    turn = event.get("params", {}).get("turn", {})
+                    turn_id = turn_id or turn.get("id")
+                    if turn.get("status") != "completed":
+                        raise Phase2PilotError(
+                            f"App Server turn ended with non-success status: {turn.get('status')!r}"
+                        )
                     return AppServerTurnEvidence(runtime_version, thread_id, turn_id, started, time.time(), len(usage_events), tuple(usage_events))
             raise Phase2PilotError("App Server turn exceeded bounded timeout")
         finally:

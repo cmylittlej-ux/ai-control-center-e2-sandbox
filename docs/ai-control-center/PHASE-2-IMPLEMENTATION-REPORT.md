@@ -7,12 +7,15 @@
 `PHASE_2_BLOCKED`
 
 The bounded local Phase 2 pilot foundations and real disposable PostgreSQL/Git
-worktree tests pass, but Phase 2 cannot be accepted. A real Codex App Server
-initialize handshake passed, while the bounded two-turn App Server execution
-probe did not complete and produced no turn completion or usage evidence. The
-existing GitHub credential helper has no usable write credential, so no Phase 2
-PR or GitHub-hosted `authoritative-ci` Run ID exists. The approved Sol Reviewer
-runtime was therefore not exercised as an independent real Reviewer.
+worktree tests pass, but Phase 2 cannot be accepted. The App Server harness was
+corrected to negotiate the pinned runtime's `experimentalApi` capability and
+now reaches real `thread/start` and `turn/start` responses. Two bounded Worker
+turns nevertheless end with `turn.status=failed` because the isolated Worker
+runtime has no bearer/basic authentication; neither produced a Worker commit
+or usage event. A fresh independent Reviewer thread accepts the requested
+`gpt-5.6-sol` selection, but its turn fails for the same authentication reason.
+The existing GitHub credential helper has no usable write credential, so no
+Phase 2 PR or GitHub-hosted `authoritative-ci` Run ID exists.
 
 This is a fail-closed blocker, not a downgrade of any Phase 1 guarantee. Local
 fixture Reviewer and fixture CI records are explicitly not claimed as
@@ -94,13 +97,16 @@ tests. Final all-suite command:
 
 ```text
 env PYTHONPATH=/private/tmp/aicc-phase1-psycopg python3 -m unittest discover -s tests -v
-Ran 35 tests in 10.617s
+Ran 35 tests in 10.716s
 OK
 ```
 
 Breakdown: 15 existing Phase 1 contract tests, 8 existing Phase 1 live
 PostgreSQL tests, 7 Phase 2 contract tests, and 5 Phase 2 live pilot tests.
-Phase 1 tests were not modified. Local tests are not GitHub authoritative CI.
+Phase 1 tests were not modified. The final run used the already-authorized
+disposable PostgreSQL database with local Unix-socket access. The pinned
+runtime contract still proves unsupported runtime/schema input fails closed.
+Local tests are not GitHub authoritative CI.
 
 ## 4. Local machine evidence
 
@@ -196,10 +202,62 @@ The actual command `/Users/Shared/aicc-phase1-pin/codex-0.153.2 app-server
 --stdio` completed JSON-RPC `initialize`, identifying
 `Codex Desktop/0.153.2 (Mac OS 15.5.0; arm64) dumb`.
 
-A bounded two-worker `thread/start`/`turn/start` probe did not produce
-`turn/completed` within its timeout and was terminated safely. No Phase 2
-App Server Worker commit or `thread/tokenUsage/updated` event was claimed. No
-ChatGPT subscription usage was labeled as API billing cost.
+### Protocol diagnosis and minimal harness correction
+
+The first bounded probe used `runtimeWorkspaceRoots` without negotiating the
+experimental capability. The pinned App Server returned JSON-RPC `-32600`:
+`thread/start.runtimeWorkspaceRoots requires experimentalApi capability`.
+The Worker client now sends `initialize.params.capabilities.experimentalApi=true`.
+This is a protocol compatibility correction, not an architecture change.
+
+The corrected client also treats only `turn.status=completed` as success. A
+`turn/completed` notification with `status=failed` now raises
+`Phase2PilotError`; failed turns cannot be recorded as successful Worker work.
+
+### Two real bounded Worker turns
+
+The probes used separate disposable worktrees and the isolated temporary state
+directory `/private/tmp/aicc-phase2-codex-home-isolated`; no credential file was
+copied or printed. Each process was terminated safely after the protocol
+outcome, and each binding was supplied as `(task_id, attempt_id=1,
+lease_epoch=1, worker_slot)`.
+
+| Worker | Thread ID | Turn ID | protocol outcome | usage events | Git result |
+|---|---|---|---|---:|---|
+| `worker_slot_1` / `phase2-authorized-worker-1` | `01a06c52-3791-7872-9b86-e9ab299addb0` | `01a06c52-37a4-7f20-bd1b-4fbae4e1b5d8` | `turn/completed`, status `failed` | 0 | no file, no commit |
+| `worker_slot_2` / `phase2-authorized-worker-2` | `01a06c52-9594-7242-92fa-32c1ac005940` | `01a06c52-959e-7ef2-9a2d-f0780170c2a2` | `turn/completed`, status `failed` | 0 | no file, no commit |
+
+Observed lifecycle for both was `initialize` response, `remoteControl/status/changed`,
+`thread/start`, `thread/started`, `thread/status/changed`, `turn/start`,
+`turn/started`, user-message item events, repeated `error` notifications, and
+`turn/completed`. With network enabled for diagnosis, stderr identified
+`401 Unauthorized` and `Missing bearer or basic authentication in header` for
+`wss://api.openai.com/v1/responses`; without the network exception the same
+probe failed earlier at DNS/startup. No `thread/tokenUsage/updated` event was
+emitted. ChatGPT subscription usage is not classified as API billing cost.
+
+The corrected client was separately exercised against the real failed turn and
+returned `failed_closed` with:
+`App Server turn ended with non-success status: 'failed'`.
+
+### Independent approved Reviewer attempt
+
+A fresh independent App Server thread was started with the explicitly
+requested model `gpt-5.6-sol` and machine-assembled evidence containing the
+repository, commit/diff digest, authoritative-ci fields, and frozen acceptance
+criteria. App Server echoed `model=gpt-5.6-sol`:
+
+```text
+thread_id: 01a06c55-310a-77b1-933b-62f4e6e9d0a2
+turn_id:   01a06c55-3144-7823-bd91-42ad48bbd6bf
+turn/completed status: failed
+usage events: 0
+decision: none
+```
+
+The Reviewer turn failed with the same 401 authentication error. No Reviewer
+decision was accepted, no Worker self-assessment was used, and no local
+fixture decision was relabeled as real Sol evidence.
 
 ## 6. GitHub authoritative CI and Reviewer evidence
 
@@ -229,11 +287,19 @@ is no Phase 2 PR, GitHub Run ID, authoritative-ci conclusion, runner timestamp,
 or authoritative positive/negative gate evidence. Phase 0 E-2 IDs were not
 reused as Phase 2 evidence.
 
+Read-only GitHub API verification on 2026-09-04 confirmed that the disposable
+repository still has ruleset `22258639`, `E2 Main Protection`, with
+`enforcement=active`, targeting `~DEFAULT_BRANCH`. Its visible rules remain
+PR-required, required status check `authoritative-ci` with strict/up-to-date
+policy, deletion blocked, and non-fast-forward blocked. This did not provide
+the missing write credential and made no remote mutation.
+
 The local `IndependentReviewer` enforces fresh context, distinct Worker
 identity, machine-assembled evidence, structured `ACCEPT`/`REJECT`/
 `HUMAN_REQUIRED`, self-review denial, and fail-closed model substitution. The
-local fixture exercised reject then accept, but no actual approved Sol Reviewer
-runtime identity or independent App Server review was available.
+local fixture exercised reject then accept. The real App Server Reviewer
+selection echoed `gpt-5.6-sol`, but authentication failed before an independent
+review decision was produced.
 
 ## 7. Acceptance mapping
 
@@ -241,8 +307,9 @@ runtime identity or independent App Server review was available.
 |---|---|
 | A/B/C/D/E/F/G local worker, lease, isolation, conflict and drift behaviors | PASS locally |
 | H protected workflow policy | PASS locally; GitHub protected-main proof unavailable |
+| Real pinned App Server Worker path | BLOCKED: protocol handshake and model thread setup pass, but both turns fail closed at authenticated sampling; no Worker commits or usage events |
 | I/J authoritative CI PASS/FAIL gates | BLOCKED: no Phase 2 PR/Run ID |
-| K independent approved Reviewer | BLOCKED: no real Sol runtime evidence |
+| K independent approved Reviewer | BLOCKED: `gpt-5.6-sol` selection is accepted, but the fresh real turn fails authentication before a decision |
 | L Worker natural-language done is insufficient | PASS in machine-input protocol |
 | M reject/rework/fresh lease path | PASS locally; CI identifiers are fixtures |
 | N human gate | PASS locally; explicit fixture approval required |
@@ -257,7 +324,8 @@ No unmet mandatory acceptance criterion was downgraded to a warning.
 
 - `control_kernel/kernel.py` — deterministic lease fencing for drift/safety;
 - `control_kernel/phase2.py` — bounded scheduler, worktrees, App Server client,
-  CI/review/rework/integration/recovery primitives;
+  CI/review/rework/integration/recovery primitives; corrected App Server
+  experimental capability negotiation and non-success turn fail-closed handling;
 - `migrations/002_phase2_pilot.sql` — Phase 2 slot and evidence metadata/ACLs;
 - `tests/test_phase2_contracts.py` — 7 contract tests;
 - `tests/test_phase2_integration.py` — 5 real PostgreSQL/Git worktree pilot
@@ -269,20 +337,56 @@ and E-1/E-2 evidence were not modified.
 
 ## 9. Remaining blockers and deferred scope
 
-Human Bootstrap is required for a least-privilege GitHub credential that can
-push task branches, open/read PR checks, and cannot modify workflows,
-administration, branch protection, evidence or protected main. Phase 2 also
-requires real GitHub-hosted PASS and FAIL Run IDs, the approved Sol Reviewer
-machine identity/context, and bounded successful App Server Worker turns with
-usage events where emitted.
+### Human Bootstrap blockers
 
-Until those gates are satisfied, do not call Phase 2 PASS, do not substitute
-local CI or fixture Reviewer records, and do not start Phase 3 or excluded
-product scope.
+1. GitHub write authority is unavailable. The main repository has no remote,
+   `gh` is not installed, the configured helper is `osxkeychain`, and the
+   credential fill/push probe failed with `could not read Username for
+   'https://github.com': Device not configured`. The smallest Human action is
+   to authenticate a temporary least-privilege credential for the authorized
+   disposable repository. It must allow task-branch push, PR create/read and
+   check read while denying administration, workflows, Actions, secrets/
+   environments, ruleset/branch-protection changes, force push, and protected
+   main bypass. No token was printed, copied, or committed.
+
+2. The authenticated Worker/App Server runtime is unavailable to this process.
+   The verified `aicc-worker` account is non-admin and its `.codex/auth.json`
+   is mode `600`, unreadable by `mengyaocong`; the isolated probe state had no
+   bearer/basic authentication. The smallest Human action is a one-time Codex
+   login/authorization in the `aicc-worker` environment, or enabling the
+   already-authenticated Worker runtime with its existing credentials. Do not
+   copy or disclose `auth.json`; no credential was read or logged. Required
+   outbound access to the App Server service must also be available.
+
+3. The approved independent Reviewer cannot produce a real decision until an
+   authenticated machine interface is available. The exact requested
+   `gpt-5.6-sol` model selection is supported and was echoed by App Server, but
+   the fresh review turn failed before inference with 401. No model substitute
+   or paid API key was introduced.
+
+After those Human Bootstrap actions complete, automation can continue with the
+same fail-closed harness: push the Phase 2 branch, create the PR, collect real
+GitHub-hosted PASS/FAIL Run IDs, run two successful bounded Workers, capture
+usage where emitted, and obtain a fresh independent Sol review. Until then,
+do not call Phase 2 PASS, do not substitute local CI or fixture Reviewer
+records, and do not start Phase 3 or excluded product scope.
+
+### Deferred scope
+
+Dashboard UI, Phase 3, production deployment, public API, multi-project
+runtime, real business-project execution, unrestricted Director autonomy,
+automatic protected-main merge, dynamic model routing, and any scheduler
+scaling beyond the bounded two-slot pilot remain deferred.
 
 ## 10. Git commit
 
-Phase 2 implementation/evidence commit SHA: `6cb0c66b669526e1a32d141346c7a1bccef235e4`.
+Phase 2 implementation/evidence baseline commit SHA:
+`6cb0c66b669526e1a32d141346c7a1bccef235e4`.
+
+This blocker-resolution pass adds only the App Server protocol negotiation and
+non-success turn fail-closed correction in `control_kernel/phase2.py`, plus
+this evidence/report update. The final commit SHA is recorded by Git after
+the documentation consistency check.
 
 ## HARD STOP
 
