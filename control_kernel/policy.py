@@ -4,6 +4,7 @@ import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 
+from .domain import ReasonCode, TaskState
 from .errors import PolicyDenied, UnsupportedRuntime
 
 
@@ -51,6 +52,29 @@ class DeterministicPolicy:
         if actor_role.lower() == "worker":
             raise PolicyDenied("Worker cannot authoritatively mutate Control Plane state")
         return PolicyDecision(True, "CONTROL_PLANE_ONLY", "state write is restricted to the Control Plane")
+
+    def authorize_transition(
+        self,
+        *,
+        current: TaskState | str,
+        target: TaskState | str,
+        reason_code: ReasonCode,
+        actor_role: str,
+        approval_id: str | None,
+    ) -> PolicyDecision:
+        self.authorize_state_write(actor_role)
+        current_state = TaskState(current)
+        target_state = TaskState(target)
+        if (
+            current_state is TaskState.REVIEW
+            and target_state is TaskState.INTEGRATING
+            and reason_code is ReasonCode.HUMAN_APPROVAL_REQUIRED
+        ):
+            raise PolicyDenied("human-required review must enter AWAITING_HUMAN first")
+        if current_state is TaskState.AWAITING_HUMAN:
+            if actor_role.lower() != "human" or not approval_id:
+                raise PolicyDenied("AWAITING_HUMAN requires an explicit human approval decision")
+        return PolicyDecision(True, "DETERMINISTIC_TRANSITION", "transition is permitted by policy")
 
     def authorize_runtime(
         self,

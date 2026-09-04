@@ -54,7 +54,7 @@ class ReferenceKernelModel:
         task = self.tasks[task_id]
         if task["state"] != TaskState.READY:
             raise InvalidTransition("claim requires READY")
-        task["attempt_id"] = int(task["attempt_id"]) + 1
+        task["attempt_id"] = int(task["attempt_id"]) if int(task["attempt_id"]) > 0 else 1
         task["lease_epoch"] = int(task["lease_epoch"]) + 1
         task["state"] = TaskState.RUNNING
         task["state_version"] = int(task["state_version"]) + 1
@@ -67,6 +67,8 @@ class ReferenceKernelModel:
             return
         task["lease_active"] = False
         task["state"] = TaskState.READY
+        task["attempt_id"] = int(task["attempt_id"]) + 1
+        task["lease_epoch"] = int(task["lease_epoch"]) + 1
         task["state_version"] = int(task["state_version"]) + 1
         self.audit.append({"event": "LEASE_EXPIRED", "task_id": task_id})
 
@@ -79,12 +81,21 @@ class ReferenceKernelModel:
         target: TaskState,
         idempotency_key: str,
         *,
+        reason_code: ReasonCode = ReasonCode.NONE,
         actor_role: str = "control_plane",
+        approval_id: str | None = None,
     ) -> tuple[dict[str, object], bool]:
         if actor_role == "worker":
             raise PolicyDenied("worker cannot write authoritative state")
+        DeterministicPolicy().authorize_transition(
+            current=self.tasks[task_id]["state"],
+            target=target,
+            reason_code=reason_code,
+            actor_role=actor_role,
+            approval_id=approval_id,
+        )
         request = json.dumps(
-            [task_id, attempt_id, lease_epoch, expected_state_version, target.value],
+            [task_id, attempt_id, lease_epoch, expected_state_version, target.value, reason_code.value, approval_id],
             separators=(",", ":"),
         )
         request_hash = hashlib.sha256(request.encode()).hexdigest()
@@ -100,9 +111,14 @@ class ReferenceKernelModel:
             or task["lease_epoch"] != lease_epoch
         ):
             raise StaleLease("fence mismatch")
-        if task["state"] in {TaskState.RUNNING, TaskState.TESTING, TaskState.REVIEW} and not task["lease_active"]:
+        if task["state"] in {TaskState.RUNNING, TaskState.VERIFYING, TaskState.REVIEW} and not task["lease_active"]:
             raise StaleLease("lease expired")
         validate_transition(task["state"], target)
+        is_rework = target is TaskState.READY and reason_code is ReasonCode.REWORK_REQUIRED
+        if is_rework:
+            task["attempt_id"] = int(task["attempt_id"]) + 1
+            task["lease_epoch"] = int(task["lease_epoch"]) + 1
+            task["lease_active"] = False
         task["state"] = target
         task["state_version"] = int(task["state_version"]) + 1
         response = {"task_id": task_id, "state": target.value, "state_version": task["state_version"]}
@@ -112,6 +128,91 @@ class ReferenceKernelModel:
 
 
 class Phase1ContractTests(unittest.TestCase):
+    def test_exact_nine_state_enumeration(self) -> None:
+        expected = [
+            "BACKLOG",
+            "READY",
+            "RUNNING",
+            "VERIFYING",
+            "REVIEW",
+            "AWAITING_HUMAN",
+            "INTEGRATING",
+            "CLOSED",
+            "BLOCKED",
+        ]
+        self.assertEqual([state.value for state in TaskState], expected)
+        self.assertIn("'BACKLOG', 'READY', 'RUNNING', 'VERIFYING', 'REVIEW'", MIGRATION)
+        self.assertIn("'AWAITING_HUMAN', 'INTEGRATING', 'CLOSED', 'BLOCKED'", MIGRATION)
+
+    def test_deprecated_task_states_are_rejected(self) -> None:
+        for deprecated in ("TESTING", "READY_TO_INTEGRATE", "INTEGRATED", "DONE"):
+            with self.assertRaises(ValueError, msg=deprecated):
+                TaskState(deprecated)
+            self.assertNotIn(f"'{deprecated}'", MIGRATION.split("reason_code TEXT", 1)[0])
+
+    def test_verifying_path_and_integration_close_are_valid(self) -> None:
+        validate_transition(TaskState.RUNNING, TaskState.VERIFYING)
+        validate_transition(TaskState.VERIFYING, TaskState.REVIEW)
+        validate_transition(TaskState.REVIEW, TaskState.INTEGRATING)
+        validate_transition(TaskState.INTEGRATING, TaskState.CLOSED)
+
+    def test_human_required_review_cannot_bypass_awaiting_human(self) -> None:
+        policy = DeterministicPolicy()
+        with self.assertRaises(PolicyDenied):
+            policy.authorize_transition(
+                current=TaskState.REVIEW,
+                target=TaskState.INTEGRATING,
+                reason_code=ReasonCode.HUMAN_APPROVAL_REQUIRED,
+                actor_role="control_plane",
+                approval_id=None,
+            )
+        policy.authorize_transition(
+            current=TaskState.REVIEW,
+            target=TaskState.AWAITING_HUMAN,
+            reason_code=ReasonCode.HUMAN_APPROVAL_REQUIRED,
+            actor_role="control_plane",
+            approval_id=None,
+        )
+        with self.assertRaises(PolicyDenied):
+            policy.authorize_transition(
+                current=TaskState.AWAITING_HUMAN,
+                target=TaskState.INTEGRATING,
+                reason_code=ReasonCode.NONE,
+                actor_role="control_plane",
+                approval_id=None,
+            )
+        policy.authorize_transition(
+            current=TaskState.AWAITING_HUMAN,
+            target=TaskState.INTEGRATING,
+            reason_code=ReasonCode.NONE,
+            actor_role="human",
+            approval_id="decision-1",
+        )
+
+    def test_rework_returns_to_ready_with_incremented_attempt(self) -> None:
+        model = ReferenceKernelModel()
+        model.create_task("task-1")
+        model.make_ready("task-1")
+        attempt, epoch = model.claim("task-1")
+        response, _ = model.transition(
+            "task-1", attempt, epoch, 2, TaskState.VERIFYING, "evt-verify", reason_code=ReasonCode.NONE
+        )
+        response, _ = model.transition(
+            "task-1", attempt, epoch, response["state_version"], TaskState.REVIEW, "evt-review", reason_code=ReasonCode.NONE
+        )
+        response, _ = model.transition(
+            "task-1",
+            attempt,
+            epoch,
+            response["state_version"],
+            TaskState.READY,
+            "evt-rework",
+            reason_code=ReasonCode.REWORK_REQUIRED,
+        )
+        self.assertEqual(response["state"], TaskState.READY.value)
+        self.assertEqual(model.tasks["task-1"]["attempt_id"], 2)
+        self.assertEqual(model.claim("task-1"), (2, 3))
+
     def test_only_one_orchestrator_can_own_control(self) -> None:
         model = ReferenceKernelModel()
         model.acquire_orchestrator("orchestrator-a")
@@ -125,10 +226,10 @@ class Phase1ContractTests(unittest.TestCase):
         model.make_ready("task-1")
         attempt, epoch = model.claim("task-1")
         with self.assertRaises(StaleLease):
-            model.transition("task-1", attempt, epoch - 1, 2, TaskState.TESTING, "evt-1")
+            model.transition("task-1", attempt, epoch - 1, 2, TaskState.VERIFYING, "evt-1")
         model.expire("task-1")
         with self.assertRaises(StaleLease):
-            model.transition("task-1", attempt, epoch, 2, TaskState.TESTING, "evt-2")
+            model.transition("task-1", attempt, epoch, 2, TaskState.VERIFYING, "evt-2")
         self.assertIn("lease_expires_at > clock_timestamp()", KERNEL_SOURCE)
 
     def test_expired_lease_returns_to_ready_and_next_claim_increments_attempt(self) -> None:
@@ -139,15 +240,15 @@ class Phase1ContractTests(unittest.TestCase):
         model.expire("task-1")
         second_attempt, second_epoch = model.claim("task-1")
         self.assertEqual((first_attempt, first_epoch), (1, 1))
-        self.assertEqual((second_attempt, second_epoch), (2, 2))
+        self.assertEqual((second_attempt, second_epoch), (2, 3))
 
     def test_duplicate_events_are_idempotent_and_conflicting_reuse_is_rejected(self) -> None:
         model = ReferenceKernelModel()
         model.create_task("task-1")
         model.make_ready("task-1")
         attempt, epoch = model.claim("task-1")
-        first, replayed = model.transition("task-1", attempt, epoch, 2, TaskState.TESTING, "evt-1")
-        second, replayed_again = model.transition("task-1", attempt, epoch, 2, TaskState.TESTING, "evt-1")
+        first, replayed = model.transition("task-1", attempt, epoch, 2, TaskState.VERIFYING, "evt-1")
+        second, replayed_again = model.transition("task-1", attempt, epoch, 2, TaskState.VERIFYING, "evt-1")
         self.assertFalse(replayed)
         self.assertTrue(replayed_again)
         self.assertEqual(first, second)
@@ -162,9 +263,9 @@ class Phase1ContractTests(unittest.TestCase):
 
     def test_invalid_state_transitions_are_rejected(self) -> None:
         with self.assertRaises(InvalidTransition):
-            validate_transition(TaskState.DONE, TaskState.READY)
+            validate_transition(TaskState.CLOSED, TaskState.READY)
         with self.assertRaises(InvalidTransition):
-            validate_transition(TaskState.BACKLOG, TaskState.DONE)
+            validate_transition(TaskState.BACKLOG, TaskState.CLOSED)
 
     def test_audit_and_evidence_are_append_only(self) -> None:
         self.assertIn("BEFORE UPDATE OR DELETE", MIGRATION)

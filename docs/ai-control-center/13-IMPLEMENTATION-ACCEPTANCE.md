@@ -30,9 +30,8 @@
 
 ## 安全验收
 
-必须证明 Worker 无法写 main、其他 Project、其他 Worktree、Branch Protection、权威证据或原始 Secrets；缺少 Commit/CI/Review/Integration Evidence 时无法 DONE；预算/Stop 边界会暂停；Crash/Restart/Timeout/Conflict 可恢复或安全阻塞；高风险动作需要 Human + Guardian；Event Log 可重建状态，重复命令不产生重复副作用。
+必须证明 Worker 无法写 main、其他 Project、其他 Worktree、Branch Protection、权威证据或原始 Secrets；缺少 Commit/CI/Review/Integration Evidence 时无法 CLOSED；预算/Stop 边界会暂停；Crash/Restart/Timeout/Conflict 可恢复或安全阻塞；高风险动作需要 Human + Guardian；Event Log 可重建状态，重复命令不产生重复副作用。
 
 ## 明确非目标
 
 不包含自动 Merge main、生产自动部署、无限 Agent、跨项目共享 Context、无审计外部写操作、公开远程访问、Jira-style Gantt、velocity/story points、AI ETA、multi-user RBAC 或真实业务项目改造。
-

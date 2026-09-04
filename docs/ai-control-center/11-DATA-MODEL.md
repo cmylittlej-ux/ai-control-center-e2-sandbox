@@ -24,7 +24,7 @@
 
 ## State 与 reason_code
 
-Task 顶层状态恰好为：`BACKLOG`、`READY`、`RUNNING`、`TESTING`、`REVIEW`、`READY_TO_INTEGRATE`、`INTEGRATED`、`DONE`、`BLOCKED`。等待依赖、返工、失败、取消、回滚、暂停、预算、策略和人工原因存于 `reason_code`，不另造状态。
+Task 顶层状态恰好为：`BACKLOG`、`READY`、`RUNNING`、`VERIFYING`、`REVIEW`、`AWAITING_HUMAN`、`INTEGRATING`、`CLOSED`、`BLOCKED`。测试、构建、lint 和验证细节存于 `VERIFYING` 的 evidence/reason/status 字段；等待依赖、返工、失败、取消、回滚、暂停、预算、策略和人工原因存于 `reason_code`，不另造状态。返工回到 `READY` 并递增 `attempt_id`。
 
 ## Acceptance Contract
 
@@ -32,5 +32,4 @@ Requirement 保存原文、解析版本、范围、非目标、风险和来源�
 
 ## 状态视图与隔离
 
-Dashboard 使用带 `as_of`/`source_event_id` 的只读投影。Task、Execution、Branch、Worktree、Commit、Review、Usage、Event 的 Project ID 必须一致；跨 Project 引用默认拒绝。`DONE` 必须存在适用的计划、权威验证、独立 Review、Integration 和审计证据。
-
+Dashboard 使用带 `as_of`/`source_event_id` 的只读投影。Task、Execution、Branch、Worktree、Commit、Review、Usage、Event 的 Project ID 必须一致；跨 Project 引用默认拒绝。`CLOSED` 必须存在适用的计划、权威验证、独立 Review、Integration 和审计证据，或存在取消、取代或放弃的合法终止证据。

@@ -9,7 +9,7 @@
 - Control Plane 对 Project、Task、Dependency、Acceptance Contract、Policy、Budget、Lease、Evidence 和 Integration 拥有唯一权威状态。
 - 任意命令必须携带 `project_id`、目标版本、actor、作用域和幂等键；版本不匹配或重复副作用必须拒绝。
 - 状态改变、预算预留、lease 变化和对应事件必须事务性提交。
-- Dashboard、Agent 自报、Tracker 文本和 App Server 消息都不能直接成为 DONE 或集成事实。
+- Dashboard、Agent 自报、Tracker 文本和 App Server 消息都不能直接成为 CLOSED 或集成事实。
 
 ## C2 — Leasing & Crash Recovery
 
@@ -45,4 +45,3 @@ Director 解析 Requirement → 冻结 Acceptance Contract → 建立 DAG → �
 ## 失败与停止
 
 运行错误、测试 Hang、Git 冲突、Base Drift、权限拒绝、Token/Cost 异常、审计不完整或模型变更都必须映射到受控 `reason_code`。达到运行策略边界即停止；重新开始必须重新校验 Project、Commit、Budget、Policy 和 Lease。
-

@@ -9,11 +9,11 @@ class TaskState(str, Enum):
     BACKLOG = "BACKLOG"
     READY = "READY"
     RUNNING = "RUNNING"
-    TESTING = "TESTING"
+    VERIFYING = "VERIFYING"
     REVIEW = "REVIEW"
-    READY_TO_INTEGRATE = "READY_TO_INTEGRATE"
-    INTEGRATED = "INTEGRATED"
-    DONE = "DONE"
+    AWAITING_HUMAN = "AWAITING_HUMAN"
+    INTEGRATING = "INTEGRATING"
+    CLOSED = "CLOSED"
     BLOCKED = "BLOCKED"
 
 
@@ -46,13 +46,23 @@ class ReasonCode(str, Enum):
 ALLOWED_TRANSITIONS: dict[TaskState, frozenset[TaskState]] = {
     TaskState.BACKLOG: frozenset({TaskState.READY, TaskState.BLOCKED}),
     TaskState.READY: frozenset({TaskState.RUNNING, TaskState.BLOCKED}),
-    TaskState.RUNNING: frozenset({TaskState.TESTING, TaskState.BLOCKED}),
-    TaskState.TESTING: frozenset({TaskState.REVIEW, TaskState.RUNNING, TaskState.BLOCKED}),
-    TaskState.REVIEW: frozenset({TaskState.READY_TO_INTEGRATE, TaskState.RUNNING, TaskState.BLOCKED}),
-    TaskState.READY_TO_INTEGRATE: frozenset({TaskState.INTEGRATED, TaskState.BLOCKED}),
-    TaskState.INTEGRATED: frozenset({TaskState.DONE, TaskState.BLOCKED}),
-    TaskState.DONE: frozenset(),
-    TaskState.BLOCKED: frozenset({TaskState.READY, TaskState.RUNNING}),
+    TaskState.RUNNING: frozenset({TaskState.VERIFYING, TaskState.READY, TaskState.BLOCKED}),
+    TaskState.VERIFYING: frozenset({TaskState.REVIEW, TaskState.READY, TaskState.BLOCKED}),
+    TaskState.REVIEW: frozenset({
+        TaskState.AWAITING_HUMAN,
+        TaskState.INTEGRATING,
+        TaskState.READY,
+        TaskState.BLOCKED,
+    }),
+    TaskState.AWAITING_HUMAN: frozenset({
+        TaskState.INTEGRATING,
+        TaskState.READY,
+        TaskState.CLOSED,
+        TaskState.BLOCKED,
+    }),
+    TaskState.INTEGRATING: frozenset({TaskState.CLOSED, TaskState.READY, TaskState.BLOCKED}),
+    TaskState.CLOSED: frozenset(),
+    TaskState.BLOCKED: frozenset({TaskState.READY, TaskState.CLOSED}),
 }
 
 

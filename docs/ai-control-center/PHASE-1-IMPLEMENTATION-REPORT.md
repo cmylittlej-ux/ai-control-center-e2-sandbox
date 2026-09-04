@@ -31,7 +31,53 @@ ARBITRATION.md` remains the priority document where earlier text conflicts:
 - `OPEN-QUESTIONS.md`
 - `13-IMPLEMENTATION-ACCEPTANCE.md`
 
-No frozen architecture document was modified during Phase 1 implementation.
+The higher-priority `06-FINAL-ARCHITECTURE-CONVERGENCE.md` and
+`07-SOL-FINAL-ARCHITECTURE-ARBITRATION.md` were not modified during this
+correction. The affected local frozen lifecycle/provenance documents are listed
+below and their post-correction hashes are recorded in Git.
+
+## Focused architecture-compliance correction
+
+The initial Phase 1 implementation exposed a frozen-architecture mismatch: its
+domain model and SQL used `TESTING`, `READY_TO_INTEGRATE`, `INTEGRATED`, and
+`DONE`. This was corrected before resolving the existing environment blockers.
+
+The authoritative task-state enumeration is now exactly:
+
+```text
+BACKLOG, READY, RUNNING, VERIFYING, REVIEW,
+AWAITING_HUMAN, INTEGRATING, CLOSED, BLOCKED
+```
+
+The correction also makes the following explicit and testable:
+
+- testing, build, lint, and verification details remain evidence/reason/status
+  data inside `VERIFYING`;
+- a human-required review enters `AWAITING_HUMAN` and cannot transition directly
+  to `INTEGRATING` without an explicit human decision;
+- integration preparation and completion remain inside `INTEGRATING`, whose
+  successful exit is `CLOSED`;
+- rework returns to `READY` with `reason_code=REWORK_REQUIRED` and increments
+  `attempt_id`; no `REWORK` state is introduced;
+- the deprecated task-state strings are rejected by the domain enum and SQL
+  state constraint.
+
+Affected local provenance documents were updated only to reconcile this frozen
+state-model correction: `03-TASK-LIFECYCLE.md`, `04-ORCHESTRATION-RULES.md`,
+`11-DATA-MODEL.md`, and `13-IMPLEMENTATION-ACCEPTANCE.md`.
+
+Post-correction SHA-256 values:
+
+| File | SHA-256 after correction |
+|---|---|
+| `docs/ai-control-center/03-TASK-LIFECYCLE.md` | `db262089df3855b0c55083aba8fd48e99f1dd2606a6c972a7689372f32fb9fb5` |
+| `docs/ai-control-center/04-ORCHESTRATION-RULES.md` | `7c50bdf0ec11df21dbbb13a71a7cec4ed3c8bf47fbd9230a82c20f3ee42a2151` |
+| `docs/ai-control-center/11-DATA-MODEL.md` | `f154954fa278fe2c08c57f0c61a1cfe1bf5fe62d13ecf62e7e3e88d2c221a648` |
+| `docs/ai-control-center/13-IMPLEMENTATION-ACCEPTANCE.md` | `4e2552a81789a6cfb8dfcd569b645c865efad29c5e8474df62648a5444b2c520` |
+
+The original baseline manifest remains the historical pre-correction record;
+these hashes are the authoritative post-correction provenance for this focused
+compliance commit.
 
 ## 1. Implementation Gate — frozen baseline
 
@@ -105,8 +151,8 @@ Reference: [OpenAI Codex App Server documentation](https://learn.chatgpt.com/doc
 
 - PostgreSQL-only authority; no SQLite fallback;
 - deterministic PostgreSQL advisory lock using `pg_try_advisory_lock`;
-- nine states: `BACKLOG`, `READY`, `RUNNING`, `TESTING`, `REVIEW`,
-  `READY_TO_INTEGRATE`, `INTEGRATED`, `DONE`, `BLOCKED`;
+- nine states: `BACKLOG`, `READY`, `RUNNING`, `VERIFYING`, `REVIEW`,
+  `AWAITING_HUMAN`, `INTEGRATING`, `CLOSED`, `BLOCKED`;
 - `task_id`, `attempt_id`, and `lease_epoch` fencing fields;
 - lease claim, heartbeat, expiry, and timeout recovery;
 - database `clock_timestamp()` for authoritative timestamps;
@@ -168,6 +214,10 @@ The contract suite covers:
 - only one orchestrator owner in the reference model and advisory-lock SQL;
 - stale lease/fence rejection;
 - expired lease returning to `READY` and incrementing the next attempt;
+- exact nine-state enumeration and deprecated-state rejection;
+- valid `VERIFYING` transitions and `INTEGRATING -> CLOSED`;
+- mandatory `AWAITING_HUMAN` gate for human-required approval;
+- rework returning to `READY` with an incremented attempt;
 - duplicate event replay and conflicting idempotency-key rejection;
 - Worker authoritative-state denial;
 - invalid state-transition rejection;
@@ -225,7 +275,7 @@ checks before this gate can pass.
 |---|---|
 | PostgreSQL authoritative state | Implemented in adapter and migration; live DB verification blocked |
 | Single orchestrator ownership | Advisory-lock implementation and contract test present; live contention blocked |
-| Nine-state model | Implemented and contract-tested |
+| Exact nine-state model | Corrected to `BACKLOG`, `READY`, `RUNNING`, `VERIFYING`, `REVIEW`, `AWAITING_HUMAN`, `INTEGRATING`, `CLOSED`, `BLOCKED`; contract-tested |
 | IDs, leases, heartbeat, fencing, expiry | Implemented in PostgreSQL operations and contract-tested; live timing blocked |
 | DB authoritative time | `clock_timestamp()` used in schema and operations |
 | Idempotent transitions | Request hash, replay, conflict path implemented and tested |
@@ -259,9 +309,20 @@ finalized. Files added after the frozen baseline are:
 - `tests/test_phase1_contracts.py`
 - `docs/ai-control-center/PHASE-1-IMPLEMENTATION-REPORT.md`
 
+The state-model correction also changed these frozen local provenance documents:
+
+- `docs/ai-control-center/03-TASK-LIFECYCLE.md`
+- `docs/ai-control-center/04-ORCHESTRATION-RULES.md`
+- `docs/ai-control-center/11-DATA-MODEL.md`
+- `docs/ai-control-center/13-IMPLEMENTATION-ACCEPTANCE.md`
+
 Implementation commit SHA: `b65fb46` (`b65fb46c06fbf65a9a5a292849969ea47fe2fdb9`).
 The report was finalized in the immediately following documentation-only
 commit; the implementation source is unchanged by that finalization.
+
+State-model correction commit SHA: `PENDING_STATE_CORRECTION_COMMIT_SHA`.
+The report was finalized in the immediately following documentation-only
+commit.
 
 ## 8. Known limitations and Phase 2 deferrals
 

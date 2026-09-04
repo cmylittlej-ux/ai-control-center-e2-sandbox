@@ -110,7 +110,7 @@ class PostgresControlPlane:
             state, current_attempt, current_epoch = row
             if state != TaskState.READY.value:
                 raise InvalidTransition(f"cannot claim task in state {state}")
-            attempt_id = int(current_attempt) + 1
+            attempt_id = int(current_attempt) if int(current_attempt) > 0 else 1
             lease_epoch = int(current_epoch) + 1
             cursor.execute(
                 """
@@ -185,6 +185,8 @@ class PostgresControlPlane:
                 """
                 UPDATE tasks
                    SET state = 'READY', reason_code = 'TIMEOUT',
+                       current_attempt_id = current_attempt_id + 1,
+                       lease_epoch = lease_epoch + 1,
                        state_version = state_version + 1, updated_at = clock_timestamp()
                  WHERE task_id = %s AND state = 'RUNNING' AND current_attempt_id = %s AND lease_epoch = %s
                 """,
@@ -206,6 +208,7 @@ class PostgresControlPlane:
         reason_code: ReasonCode,
         idempotency_key: str,
         actor_role: str = "control_plane",
+        approval_id: str | None = None,
         evidence_refs: tuple[str, ...] = (),
     ) -> TransitionReceipt:
         self.policy.authorize_state_write(actor_role)
@@ -216,6 +219,7 @@ class PostgresControlPlane:
             "expected_state_version": expected_state_version,
             "target": target.value,
             "reason_code": reason_code.value,
+            "approval_id": approval_id,
             "evidence_refs": evidence_refs,
         }
         request_hash = hashlib.sha256(json.dumps(request, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
@@ -241,9 +245,16 @@ class PostgresControlPlane:
             if row is None:
                 raise KeyError(task_id)
             current_state, current_version, current_attempt, current_epoch = row
+            self.policy.authorize_transition(
+                current=current_state,
+                target=target,
+                reason_code=reason_code,
+                actor_role=actor_role,
+                approval_id=approval_id,
+            )
             if int(current_version) != expected_state_version or int(current_attempt) != attempt_id or int(current_epoch) != lease_epoch:
                 raise StaleLease("state transition failed fencing/version checks")
-            if current_state in {TaskState.RUNNING.value, TaskState.TESTING.value, TaskState.REVIEW.value}:
+            if current_state in {TaskState.RUNNING.value, TaskState.VERIFYING.value, TaskState.REVIEW.value}:
                 cursor.execute(
                     """
                     SELECT 1 FROM executions
@@ -255,13 +266,35 @@ class PostgresControlPlane:
                 if cursor.fetchone() is None:
                     raise StaleLease("state transition rejected by an expired or missing lease")
             validate_transition(current_state, target)
+            is_rework = target is TaskState.READY and reason_code is ReasonCode.REWORK_REQUIRED
+            if is_rework:
+                cursor.execute(
+                    """
+                    UPDATE executions
+                       SET status = 'RELEASED', ended_at = clock_timestamp()
+                     WHERE task_id = %s AND attempt_id = %s AND lease_epoch = %s AND status = 'ACTIVE'
+                    """,
+                    (task_id, attempt_id, lease_epoch),
+                )
             cursor.execute(
                 """
                 UPDATE tasks
-                   SET state = %s, reason_code = %s, state_version = state_version + 1, updated_at = clock_timestamp()
+                   SET state = %s, reason_code = %s,
+                       current_attempt_id = CASE WHEN %s THEN current_attempt_id + 1 ELSE current_attempt_id END,
+                       lease_epoch = CASE WHEN %s THEN lease_epoch + 1 ELSE lease_epoch END,
+                       state_version = state_version + 1, updated_at = clock_timestamp()
                  WHERE task_id = %s AND state_version = %s AND current_attempt_id = %s AND lease_epoch = %s
                 """,
-                (target.value, reason_code.value, task_id, expected_state_version, attempt_id, lease_epoch),
+                (
+                    target.value,
+                    reason_code.value,
+                    is_rework,
+                    is_rework,
+                    task_id,
+                    expected_state_version,
+                    attempt_id,
+                    lease_epoch,
+                ),
             )
             if cursor.rowcount != 1:
                 raise StaleLease("state transition lost its fence")
