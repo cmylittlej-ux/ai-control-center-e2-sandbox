@@ -1,0 +1,42 @@
+name: E2 Authoritative CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  authoritative-ci:
+    name: authoritative-ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify GitHub-hosted runner
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "run_id=${{ github.run_id }}"
+          echo "run_attempt=${{ github.run_attempt }}"
+          echo "commit_sha=${{ github.sha }}"
+          echo "runner_environment=${{ runner.environment }}"
+
+          test "${{ runner.environment }}" = "github-hosted"
+
+      - name: Authoritative baseline test
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -s README.md
+
+          echo "E2_AUTHORITATIVE_CI_PASS"
