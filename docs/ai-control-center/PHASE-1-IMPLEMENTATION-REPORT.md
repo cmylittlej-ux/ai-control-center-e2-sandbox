@@ -205,7 +205,7 @@ python3 -m unittest discover -s tests -v
 Result:
 
 ```text
-Ran 10 tests in 0.003s
+Ran 15 tests in 0.003s
 OK
 ```
 
