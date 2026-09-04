@@ -320,7 +320,7 @@ Implementation commit SHA: `b65fb46` (`b65fb46c06fbf65a9a5a292849969ea47fe2fdb9`
 The report was finalized in the immediately following documentation-only
 commit; the implementation source is unchanged by that finalization.
 
-State-model correction commit SHA: `PENDING_STATE_CORRECTION_COMMIT_SHA`.
+State-model correction commit SHA: `8409e9106c48c8a84d98ae2f1f56fdb8b81b15a3`.
 The report was finalized in the immediately following documentation-only
 commit.
 
