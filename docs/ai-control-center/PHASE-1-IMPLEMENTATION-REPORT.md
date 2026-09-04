@@ -335,7 +335,7 @@ State-model correction commit SHA: `8409e9106c48c8a84d98ae2f1f56fdb8b81b15a3`.
 The report was finalized in the immediately following documentation-only
 commit.
 
-Runtime pin evidence update commit SHA: `PENDING_RUNTIME_PIN_COMMIT_SHA`.
+Runtime pin evidence update commit SHA: `a9e89af` (`a9e89af3a15490f5251be07a3d7df0bf952cd1c2`).
 The report will be finalized in the immediately following documentation-only
 commit.
 
