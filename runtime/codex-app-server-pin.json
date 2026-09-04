@@ -1,0 +1,7 @@
+{
+  "codex_cli_version": "0.153.2",
+  "schema_path": "runtime/schema/codex_app_server_protocol.v2.schemas.json",
+  "schema_sha256": null,
+  "fail_closed": true,
+  "status": "BLOCKED_UNTIL_EXACT_0_153_2_SCHEMA_IS_GENERATED"
+}
